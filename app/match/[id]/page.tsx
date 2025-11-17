@@ -18,41 +18,43 @@ type MatchDetail = {
 };
 
 export default function MatchPage() {
-  const { id } = useParams();
+  const params = useParams();
+  const id = (params as any)?.id as string | undefined;
   const { profile } = useAuth();
+
   const [match, setMatch] = useState<MatchDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
 
-  const loadMatch = async () => {
+  const loadMatch = async (matchId: string) => {
     setLoading(true);
     setLastError(null);
 
-    const { data, error } = await supabase
-      .from('matches')
-      .select(
+    try {
+      const { data, error } = await supabase
+        .from('matches')
+        .select(
+          `
+          id,
+          status,
+          home_score,
+          away_score,
+          start_time,
+          home_team_id,
+          away_team_id,
+          home_team:home_team_id ( name ),
+          away_team:away_team_id ( name )
         `
-        id,
-        status,
-        home_score,
-        away_score,
-        start_time,
-        home_team_id,
-        away_team_id,
-        home_team:home_team_id ( name ),
-        away_team:away_team_id ( name )
-      `
-      )
-      .eq('id', id)
-      .single();
+        )
+        .eq('id', matchId)
+        .single();
 
-      if (error) {
+      if (error || !data) {
         console.error('loadMatch error', error);
-        setLastError(error.message);
         setMatch(null);
+        setLastError(error?.message ?? 'Partita non trovata');
       } else {
-        // Supabase restituisce home_team/away_team come array: li normalizziamo a oggetto singolo
         const normalized: MatchDetail = {
           id: data.id,
           status: data.status,
@@ -68,14 +70,20 @@ export default function MatchPage() {
             ? data.away_team[0]
             : data.away_team,
         };
-      
         setMatch(normalized);
       }
+    } catch (err: any) {
+      console.error('loadMatch exception', err);
+      setMatch(null);
+      setLastError(err?.message ?? 'Errore inatteso');
+    } finally {
+      setLoading(false);
     }
+  };
 
   useEffect(() => {
-    loadMatch();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (!id) return;
+    loadMatch(id);
   }, [id]);
 
   const canEdit =
@@ -107,15 +115,15 @@ export default function MatchPage() {
       console.error('addGoal error', error);
       setLastError(error.message);
     } else {
-      await loadMatch();
+      await loadMatch(match.id);
     }
 
     setUpdating(false);
   };
 
-  const updateStatus = async (newStatus: 'LIVE' | 'HALF_TIME' | 'FINISHED') => {
+  const updateStatus = async (newStatus: MatchDetail['status']) => {
     if (!match || !canEdit) {
-      setLastError('Non hai i permessi per modificare lo stato.');
+      setLastError('Non hai i permessi per modificare questa partita.');
       return;
     }
 
@@ -131,7 +139,7 @@ export default function MatchPage() {
       console.error('updateStatus error', error);
       setLastError(error.message);
     } else {
-      await loadMatch();
+      await loadMatch(match.id);
     }
 
     setUpdating(false);
@@ -151,7 +159,25 @@ export default function MatchPage() {
     }
   };
 
-  if (loading || !match) {
+  // 🔹 1) Caso: nessun id → errore chiaro, NON spinner infinito
+  if (!id) {
+    return (
+      <main
+        style={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontFamily: 'system-ui',
+        }}
+      >
+        <p>Nessun ID partita trovato.</p>
+      </main>
+    );
+  }
+
+  // 🔹 2) Caso: loading vero → spinner
+  if (loading) {
     return (
       <main
         style={{
@@ -163,6 +189,28 @@ export default function MatchPage() {
         }}
       >
         <p>Carico partita...</p>
+      </main>
+    );
+  }
+
+  // 🔹 3) Caso: loading finito ma match nullo → errore leggibile, NON spinner
+  if (!match) {
+    return (
+      <main
+        style={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontFamily: 'system-ui',
+        }}
+      >
+        <div>
+          <p>Partita non trovata.</p>
+          {lastError && (
+            <p style={{ marginTop: 8, color: '#b91c1c' }}>Errore: {lastError}</p>
+          )}
+        </div>
       </main>
     );
   }
@@ -185,184 +233,203 @@ export default function MatchPage() {
         style={{
           display: 'inline-block',
           marginBottom: 16,
-          color: '#2563eb',
-          background: 'transparent',
-          border: 'none',
-          cursor: 'pointer',
-          padding: 0,
+          padding: '6px 10px',
+          borderRadius: 999,
+          border: '1px solid #ddd',
+          background: 'white',
+          fontSize: 13,
         }}
       >
-        ← Torna alla lista
+        ← Indietro
       </button>
 
-      <h1 style={{ fontSize: 26, marginBottom: 16 }}>
-        {match.home_team?.name} vs {match.away_team?.name}
-      </h1>
-
-      <div
+      <section
         style={{
-          background: 'white',
+          maxWidth: 720,
+          margin: '0 auto',
           padding: 24,
-          borderRadius: 12,
-          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-          marginBottom: 24,
+          borderRadius: 16,
+          background: 'white',
+          boxShadow: '0 2px 6px rgba(0,0,0,0.06)',
         }}
       >
-        <div style={{ fontSize: 40, textAlign: 'center', marginBottom: 16 }}>
-          {match.home_score} - {match.away_score}
-        </div>
-
-        <p
+        <header
           style={{
-            textAlign: 'center',
-            color: '#475569',
-            fontSize: 14,
-            marginBottom: 8,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: 16,
           }}
         >
-          {getStatusLabel(match.status)} –{' '}
-          {new Date(match.start_time).toLocaleString()}
-        </p>
-      </div>
+          <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0 }}>
+            {match.home_team.name} – {match.away_team.name}
+          </h1>
+          <span
+            style={{
+              padding: '4px 10px',
+              borderRadius: 999,
+              border: '1px solid #e5e7eb',
+              fontSize: 12,
+              background:
+                match.status === 'LIVE'
+                  ? '#fee2e2'
+                  : match.status === 'FINISHED'
+                  ? '#e5e7eb'
+                  : 'white',
+            }}
+          >
+            {getStatusLabel(match.status)}
+          </span>
+        </header>
 
-      {canEdit ? (
-        <>
-          {/* Bottoni GOAL */}
-          <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-            <button
-              onClick={() => addGoal('home')}
-              disabled={updating}
-              style={{
-                flex: 1,
-                padding: 12,
-                background: '#dc2626',
-                color: 'white',
-                borderRadius: 8,
-                border: 'none',
-                fontWeight: 'bold',
-                cursor: 'pointer',
-                opacity: updating ? 0.7 : 1,
-              }}
-            >
-              +1 Goal {match.home_team?.name}
-            </button>
-
-            <button
-              onClick={() => addGoal('away')}
-              disabled={updating}
-              style={{
-                flex: 1,
-                padding: 12,
-                background: '#2563eb',
-                color: 'white',
-                borderRadius: 8,
-                border: 'none',
-                fontWeight: 'bold',
-                cursor: 'pointer',
-                opacity: updating ? 0.7 : 1,
-              }}
-            >
-              +1 Goal {match.away_team?.name}
-            </button>
-          </div>
-
-          {/* Bottoni STATO: LIVE / HT / FT */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: 24,
+          }}
+        >
           <div
             style={{
               display: 'flex',
+              alignItems: 'center',
               gap: 8,
-              marginTop: 4,
+            }}
+          >
+            <span style={{ fontSize: 16 }}>{match.home_team.name}</span>
+          </div>
+
+          <div style={{ fontSize: 32, fontWeight: 700 }}>
+            {match.home_score} – {match.away_score}
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <span style={{ fontSize: 16 }}>{match.away_team.name}</span>
+          </div>
+        </div>
+
+        {canEdit && (
+          <div
+            style={{
+              display: 'flex',
               flexWrap: 'wrap',
+              gap: 8,
+              marginBottom: 24,
             }}
           >
             <button
-              onClick={() => updateStatus('LIVE')}
-              disabled={updating || match.status === 'LIVE'}
+              type="button"
+              disabled={updating}
+              onClick={() => addGoal('home')}
               style={{
-                padding: '6px 10px',
+                padding: '8px 12px',
                 borderRadius: 999,
-                border: '1px solid #e5e7eb',
-                background:
-                  match.status === 'LIVE' ? 'rgba(22,163,74,0.1)' : 'white',
-                color: match.status === 'LIVE' ? '#16a34a' : '#374151',
-                fontSize: 12,
-                cursor: 'pointer',
+                border: 'none',
+                background: '#22c55e',
+                color: 'white',
+                fontSize: 13,
+                cursor: updating ? 'default' : 'pointer',
+              }}
+            >
+              +1 {match.home_team.name}
+            </button>
+            <button
+              type="button"
+              disabled={updating}
+              onClick={() => addGoal('away')}
+              style={{
+                padding: '8px 12px',
+                borderRadius: 999,
+                border: 'none',
+                background: '#22c55e',
+                color: 'white',
+                fontSize: 13,
+                cursor: updating ? 'default' : 'pointer',
+              }}
+            >
+              +1 {match.away_team.name}
+            </button>
+
+            <button
+              type="button"
+              disabled={updating}
+              onClick={() => updateStatus('LIVE')}
+              style={{
+                padding: '8px 12px',
+                borderRadius: 999,
+                border: 'none',
+                background: '#ef4444',
+                color: 'white',
+                fontSize: 13,
+                cursor: updating ? 'default' : 'pointer',
               }}
             >
               LIVE
             </button>
-
             <button
+              type="button"
+              disabled={updating}
               onClick={() => updateStatus('HALF_TIME')}
-              disabled={updating || match.status === 'HALF_TIME'}
               style={{
-                padding: '6px 10px',
+                padding: '8px 12px',
                 borderRadius: 999,
-                border: '1px solid #e5e7eb',
-                background:
-                  match.status === 'HALF_TIME'
-                    ? 'rgba(234,179,8,0.1)'
-                    : 'white',
-                color: match.status === 'HALF_TIME' ? '#ca8a04' : '#374151',
-                fontSize: 12,
-                cursor: 'pointer',
+                border: 'none',
+                background: '#f97316',
+                color: 'white',
+                fontSize: 13,
+                cursor: updating ? 'default' : 'pointer',
               }}
             >
               HT
             </button>
-
             <button
+              type="button"
+              disabled={updating}
               onClick={() => updateStatus('FINISHED')}
-              disabled={updating || match.status === 'FINISHED'}
               style={{
-                padding: '6px 10px',
+                padding: '8px 12px',
                 borderRadius: 999,
-                border: '1px solid #e5e7eb',
-                background:
-                  match.status === 'FINISHED'
-                    ? 'rgba(148,163,184,0.2)'
-                    : 'white',
-                color: match.status === 'FINISHED' ? '#4b5563' : '#374151',
-                fontSize: 12,
-                cursor: 'pointer',
+                border: 'none',
+                background: '#6b7280',
+                color: 'white',
+                fontSize: 13,
+                cursor: updating ? 'default' : 'pointer',
               }}
             >
               FT
             </button>
           </div>
-        </>
-      ) : (
-        <p style={{ marginTop: 8, color: '#6b7280' }}>
-          Solo il responsabile delle squadre coinvolte può aggiornare il
-          punteggio o lo stato della partita.
-        </p>
-      )}
+        )}
 
-      {/* DEBUG BOX */}
-      <div
-        style={{
-          marginTop: 24,
-          fontSize: 12,
-          color: '#6b7280',
-          background: '#e5e7eb',
-          padding: 12,
-          borderRadius: 8,
-        }}
-      >
-        <div>
-          <strong>DEBUG</strong>
-        </div>
-        <div>profile.role: {debugProfileRole}</div>
-        <div>profile.team_id: {debugProfileTeamId}</div>
-        <div>match.home_team_id: {match.home_team_id}</div>
-        <div>match.away_team_id: {match.away_team_id}</div>
-        <div>canEdit: {canEdit ? 'true' : 'false'}</div>
         {lastError && (
-          <div style={{ color: '#b91c1c', marginTop: 8 }}>
-            lastError: {lastError}
+          <div style={{ marginTop: 8, color: '#b91c1c', fontSize: 13 }}>
+            Errore: {lastError}
           </div>
         )}
-      </div>
+
+        <div
+          style={{
+            marginTop: 24,
+            paddingTop: 12,
+            borderTop: '1px dashed #e5e7eb',
+            fontSize: 11,
+            color: '#9ca3af',
+          }}
+        >
+          <div>profile.role: {debugProfileRole}</div>
+          <div>profile.team_id: {debugProfileTeamId}</div>
+          <div>match.home_team_id: {match.home_team_id}</div>
+          <div>match.away_team_id: {match.away_team_id}</div>
+          <div>canEdit: {canEdit ? 'true' : 'false'}</div>
+        </div>
+      </section>
     </main>
   );
 }
