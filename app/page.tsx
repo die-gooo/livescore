@@ -21,6 +21,10 @@ export default function Home() {
   const [matches, setMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [lastGoal, setLastGoal] = useState<{
+    matchId: string;
+    team: 'home' | 'away';
+  } | null>(null);
 
   const formatStatus = (status: MatchStatus) => {
     switch (status) {
@@ -82,7 +86,42 @@ export default function Home() {
 
   useEffect(() => {
     loadMatches();
-  }, []);
+
+    const subscription = supabase
+      .channel('matches_feed')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'matches' },
+        (payload) => {
+          const oldMatch = matches.find((m) => m.id === payload.new.id);
+          const newMatch = payload.new as Match;
+
+          if (oldMatch && newMatch) {
+            if (newMatch.home_score > oldMatch.home_score) {
+              setLastGoal({ matchId: newMatch.id, team: 'home' });
+            } else if (newMatch.away_score > oldMatch.away_score) {
+              setLastGoal({ matchId: newMatch.id, team: 'away' });
+            }
+          }
+
+          setMatches((currentMatches) =>
+            currentMatches.map((m) => (m.id === newMatch.id ? newMatch : m))
+          );
+        }
+      )
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [matches]);
+
+  useEffect(() => {
+    if (lastGoal) {
+      const timer = setTimeout(() => setLastGoal(null), 10000);
+      return () => clearTimeout(timer);
+    }
+  }, [lastGoal]);
 
   if (loading) {
     return (
@@ -269,7 +308,7 @@ export default function Home() {
                 }}
               >
                 <span>{m.home_team?.name ?? '—'}</span>
-                {m.home_score > 0 && (
+                {lastGoal?.matchId === m.id && lastGoal?.team === 'home' && (
                   <span
                     style={{
                       fontSize: 10,
@@ -309,7 +348,7 @@ export default function Home() {
                 }}
               >
                 <span>{m.away_team?.name ?? '—'}</span>
-                {m.away_score > 0 && (
+                {lastGoal?.matchId === m.id && lastGoal?.team === 'away' && (
                   <span
                     style={{
                       fontSize: 10,
@@ -320,7 +359,7 @@ export default function Home() {
                       fontWeight: 700,
                     }}
                   >
-                      GOAL
+                    GOAL
                   </span>
                 )}
               </div>

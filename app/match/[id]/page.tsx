@@ -81,16 +81,30 @@ export default function MatchPage() {
     const field = team === 'home' ? 'home_score' : 'away_score';
     const newScore = match[field] + 1;
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('matches')
       .update({ [field]: newScore })
-      .eq('id', match.id);
+      .eq('id', match.id)
+      .select(
+        `
+        id,
+        status,
+        home_score,
+        away_score,
+        start_time,
+        home_team_id,
+        away_team_id,
+        home_team:home_team_id ( name ),
+        away_team:away_team_id ( name )
+      `
+      )
+      .single();
 
     if (error) {
       console.error('addGoal error', error);
       setLastError(error.message);
-    } else {
-      await loadMatch();
+    } else if (data) {
+      setMatch(data as MatchDetail);
     }
 
     setUpdating(false);
@@ -105,16 +119,30 @@ export default function MatchPage() {
     setUpdating(true);
     setLastError(null);
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('matches')
       .update({ status: newStatus })
-      .eq('id', match.id);
+      .eq('id', match.id)
+      .select(
+        `
+        id,
+        status,
+        home_score,
+        away_score,
+        start_time,
+        home_team_id,
+        away_team_id,
+        home_team:home_team_id ( name ),
+        away_team:away_team_id ( name )
+      `
+      )
+      .single();
 
     if (error) {
       console.error('updateStatus error', error);
       setLastError(error.message);
-    } else {
-      await loadMatch();
+    } else if (data) {
+      setMatch(data as MatchDetail);
     }
 
     setUpdating(false);
@@ -134,7 +162,7 @@ export default function MatchPage() {
     }
   };
 
-  if (loading || !match) {
+  if (loading) {
     return (
       <main
         style={{
@@ -146,6 +174,22 @@ export default function MatchPage() {
         }}
       >
         <p>Carico partita...</p>
+      </main>
+    );
+  }
+
+  if (!match) {
+    return (
+      <main
+        style={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontFamily: 'system-ui',
+        }}
+      >
+        <p>Partita non trovata.</p>
       </main>
     );
   }
@@ -285,7 +329,7 @@ export default function MatchPage() {
                 background:
                   match.status === 'HALF_TIME'
                     ? 'rgba(234,179,8,0.1)'
-                    : 'white',
+                    'white',
                 color: match.status === 'HALF_TIME' ? '#ca8a04' : '#374151',
                 fontSize: 12,
                 cursor: 'pointer',
