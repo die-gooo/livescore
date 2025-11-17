@@ -329,7 +329,7 @@ export default function MatchPage() {
                 background:
                   match.status === 'HALF_TIME'
                     ? 'rgba(234,179,8,0.1)'
-                    'white',
+                    : 'white',
                 color: match.status === 'HALF_TIME' ? '#ca8a04' : '#374151',
                 fontSize: 12,
                 cursor: 'pointer',
