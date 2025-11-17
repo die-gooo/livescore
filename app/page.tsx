@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../lib/AuthProvider';
 import { supabase } from '../lib/supabaseClient';
 
@@ -21,10 +21,6 @@ export default function Home() {
   const [matches, setMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [lastGoal, setLastGoal] = useState<{
-    matchId: string;
-    team: 'home' | 'away';
-  } | null>(null);
 
   const formatStatus = (status: MatchStatus) => {
     switch (status) {
@@ -40,7 +36,7 @@ export default function Home() {
     }
   };
 
-  const loadMatches = async () => {
+  const loadMatches = useCallback(async () => {
     setLoading(true);
     setError(null);
 
@@ -63,7 +59,6 @@ export default function Home() {
       console.error(error);
       setError(error.message);
     } else {
-      // normalizzo i dati per rispettare il tipo Match
       const normalized: Match[] = (data ?? []).map((row: any) => ({
         id: row.id,
         status: row.status as MatchStatus,
@@ -82,46 +77,27 @@ export default function Home() {
     }
 
     setLoading(false);
-  };
+  }, []);
 
   useEffect(() => {
     loadMatches();
 
-    const subscription = supabase
+    const channel = supabase
       .channel('matches_feed')
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'matches' },
+        { event: '*', schema: 'public', table: 'matches' },
         (payload) => {
-          const oldMatch = matches.find((m) => m.id === payload.new.id);
-          const newMatch = payload.new as Match;
-
-          if (oldMatch && newMatch) {
-            if (newMatch.home_score > oldMatch.home_score) {
-              setLastGoal({ matchId: newMatch.id, team: 'home' });
-            } else if (newMatch.away_score > oldMatch.away_score) {
-              setLastGoal({ matchId: newMatch.id, team: 'away' });
-            }
-          }
-
-          setMatches((currentMatches) =>
-            currentMatches.map((m) => (m.id === newMatch.id ? newMatch : m))
-          );
+          console.log('Change received!', payload);
+          loadMatches();
         }
       )
       .subscribe();
 
     return () => {
-      subscription.unsubscribe();
+      supabase.removeChannel(channel);
     };
-  }, [matches]);
-
-  useEffect(() => {
-    if (lastGoal) {
-      const timer = setTimeout(() => setLastGoal(null), 10000);
-      return () => clearTimeout(timer);
-    }
-  }, [lastGoal]);
+  }, [loadMatches]);
 
   if (loading) {
     return (
@@ -308,7 +284,7 @@ export default function Home() {
                 }}
               >
                 <span>{m.home_team?.name ?? '—'}</span>
-                {lastGoal?.matchId === m.id && lastGoal?.team === 'home' && (
+                {m.home_score > 0 && (
                   <span
                     style={{
                       fontSize: 10,
@@ -348,7 +324,7 @@ export default function Home() {
                 }}
               >
                 <span>{m.away_team?.name ?? '—'}</span>
-                {lastGoal?.matchId === m.id && lastGoal?.team === 'away' && (
+                {m.away_score > 0 && (
                   <span
                     style={{
                       fontSize: 10,
@@ -359,7 +335,7 @@ export default function Home() {
                       fontWeight: 700,
                     }}
                   >
-                    GOAL
+                      GOAL
                   </span>
                 )}
               </div>

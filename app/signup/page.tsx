@@ -36,7 +36,7 @@ export default function SignupPage() {
     });
 
     setLoading(false);
-    window.location.href = '/';
+    router.push('/'); // torna alla home
   };
 
   return (

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { supabase } from '../../../lib/supabaseClient';
 import { useAuth } from '../../../lib/AuthProvider';
@@ -25,7 +25,8 @@ export default function MatchPage() {
   const [updating, setUpdating] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
 
-  const loadMatch = async () => {
+  const loadMatch = useCallback(async () => {
+    if (!id) return;
     setLoading(true);
     setLastError(null);
 
@@ -54,12 +55,31 @@ export default function MatchPage() {
 
     setMatch(data as MatchDetail | null);
     setLoading(false);
-  };
+  }, [id]);
 
   useEffect(() => {
     loadMatch();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+
+    const channel = supabase
+      .channel(`match_${id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'matches',
+          filter: `id=eq.${id}`,
+        },
+        (payload) => {
+          setMatch(payload.new as MatchDetail);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [id, loadMatch]);
 
   const canEdit =
     !!match &&
@@ -81,30 +101,14 @@ export default function MatchPage() {
     const field = team === 'home' ? 'home_score' : 'away_score';
     const newScore = match[field] + 1;
 
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('matches')
       .update({ [field]: newScore })
-      .eq('id', match.id)
-      .select(
-        `
-        id,
-        status,
-        home_score,
-        away_score,
-        start_time,
-        home_team_id,
-        away_team_id,
-        home_team:home_team_id ( name ),
-        away_team:away_team_id ( name )
-      `
-      )
-      .single();
+      .eq('id', match.id);
 
     if (error) {
       console.error('addGoal error', error);
       setLastError(error.message);
-    } else if (data) {
-      setMatch(data as MatchDetail);
     }
 
     setUpdating(false);
@@ -119,30 +123,14 @@ export default function MatchPage() {
     setUpdating(true);
     setLastError(null);
 
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('matches')
       .update({ status: newStatus })
-      .eq('id', match.id)
-      .select(
-        `
-        id,
-        status,
-        home_score,
-        away_score,
-        start_time,
-        home_team_id,
-        away_team_id,
-        home_team:home_team_id ( name ),
-        away_team:away_team_id ( name )
-      `
-      )
-      .single();
+      .eq('id', match.id);
 
     if (error) {
       console.error('updateStatus error', error);
       setLastError(error.message);
-    } else if (data) {
-      setMatch(data as MatchDetail);
     }
 
     setUpdating(false);
@@ -162,7 +150,7 @@ export default function MatchPage() {
     }
   };
 
-  if (loading) {
+  if (loading || !match) {
     return (
       <main
         style={{
@@ -174,22 +162,6 @@ export default function MatchPage() {
         }}
       >
         <p>Carico partita...</p>
-      </main>
-    );
-  }
-
-  if (!match) {
-    return (
-      <main
-        style={{
-          minHeight: '100vh',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontFamily: 'system-ui',
-        }}
-      >
-        <p>Partita non trovata.</p>
       </main>
     );
   }
