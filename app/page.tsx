@@ -4,14 +4,16 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../lib/AuthProvider';
 import { supabase } from '../lib/supabaseClient';
 
+type MatchStatus = 'SCHEDULED' | 'LIVE' | 'HALF_TIME' | 'FINISHED';
+
 type Match = {
   id: string;
-  status: 'SCHEDULED' | 'LIVE' | 'FINISHED';
+  status: MatchStatus;
   home_score: number;
   away_score: number;
   start_time: string;
-  home_team: { name: string };
-  away_team: { name: string };
+  home_team: { name: string } | null;
+  away_team: { name: string } | null;
 };
 
 export default function Home() {
@@ -19,6 +21,20 @@ export default function Home() {
   const [matches, setMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const formatStatus = (status: MatchStatus) => {
+    switch (status) {
+      case 'HALF_TIME':
+        return 'HT';
+      case 'FINISHED':
+        return 'FT';
+      case 'LIVE':
+        return 'LIVE';
+      case 'SCHEDULED':
+      default:
+        return 'SCHEDULED';
+    }
+  };
 
   const loadMatches = async () => {
     setLoading(true);
@@ -43,7 +59,22 @@ export default function Home() {
       console.error(error);
       setError(error.message);
     } else {
-      setMatches(data as Match[]);
+      // normalizzo i dati per rispettare il tipo Match
+      const normalized: Match[] = (data ?? []).map((row: any) => ({
+        id: row.id,
+        status: row.status as MatchStatus,
+        home_score: row.home_score,
+        away_score: row.away_score,
+        start_time: row.start_time,
+        home_team: Array.isArray(row.home_team)
+          ? row.home_team[0] ?? null
+          : row.home_team ?? null,
+        away_team: Array.isArray(row.away_team)
+          ? row.away_team[0] ?? null
+          : row.away_team ?? null,
+      }));
+
+      setMatches(normalized);
     }
 
     setLoading(false);
@@ -198,11 +229,20 @@ export default function Home() {
                 background:
                   m.status === 'LIVE'
                     ? 'rgba(220,38,38,0.1)'
+                    : m.status === 'HALF_TIME'
+                    ? 'rgba(234,179,8,0.1)'
+                    : m.status === 'FINISHED'
+                    ? 'rgba(148,163,184,0.2)'
                     : 'rgba(148,163,184,0.2)',
-                color: m.status === 'LIVE' ? '#b91c1c' : '#475569',
+                color:
+                  m.status === 'LIVE'
+                    ? '#b91c1c'
+                    : m.status === 'HALF_TIME'
+                    ? '#92400e'
+                    : '#475569',
               }}
             >
-              {m.status}
+              {formatStatus(m.status)}
             </span>
 
             <span style={{ fontSize: 12, color: '#6b7280' }}>
@@ -228,7 +268,7 @@ export default function Home() {
                   gap: 6,
                 }}
               >
-                <span>{m.home_team?.name}</span>
+                <span>{m.home_team?.name ?? '—'}</span>
                 {m.home_score > 0 && (
                   <span
                     style={{
@@ -268,7 +308,7 @@ export default function Home() {
                   gap: 6,
                 }}
               >
-                <span>{m.away_team?.name}</span>
+                <span>{m.away_team?.name ?? '—'}</span>
                 {m.away_score > 0 && (
                   <span
                     style={{
@@ -280,7 +320,7 @@ export default function Home() {
                       fontWeight: 700,
                     }}
                   >
-                    GOAL
+                      GOAL
                   </span>
                 )}
               </div>
