@@ -47,14 +47,31 @@ export default function MatchPage() {
       .eq('id', id)
       .single();
 
-    if (error) {
-      console.error('loadMatch error', error);
-      setLastError(error.message);
+      if (error) {
+        console.error('loadMatch error', error);
+        setLastError(error.message);
+        setMatch(null);
+      } else {
+        // Supabase restituisce home_team/away_team come array: li normalizziamo a oggetto singolo
+        const normalized: MatchDetail = {
+          id: data.id,
+          status: data.status,
+          home_score: data.home_score,
+          away_score: data.away_score,
+          start_time: data.start_time,
+          home_team_id: data.home_team_id,
+          away_team_id: data.away_team_id,
+          home_team: Array.isArray(data.home_team)
+            ? data.home_team[0]
+            : data.home_team,
+          away_team: Array.isArray(data.away_team)
+            ? data.away_team[0]
+            : data.away_team,
+        };
+      
+        setMatch(normalized);
+      }
     }
-
-    setMatch(data as MatchDetail | null);
-    setLoading(false);
-  };
 
   useEffect(() => {
     loadMatch();
